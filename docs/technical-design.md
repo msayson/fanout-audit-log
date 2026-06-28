@@ -305,7 +305,7 @@ A stream/log consumer upserts current state into one Postgres table with seconda
 
 ### Recommendation
 
-**Option B is chosen.** All P1 views tolerate hourly staleness, so the projection reuses the §3 audit-log pipeline, keeps the worker to a single write path, serves the by-item / failed / failure-count-ranked / SLA-breach views as flexible SQL instead of pre-modeled GSIs, and keeps the P1 line ~2 orders of magnitude below the DynamoDB alternative (~$80 vs ~$17,010/mo at 10k/day). It remains a rebuildable projection of the log, preserving the P1 classification.
+**Option B is chosen.** All P1 views tolerate hourly staleness, so the projection reuses the §3 audit-log pipeline, keeps the worker to a single write path, serves the by-item / failed / failure-count-ranked / SLA-breach views as flexible SQL instead of pre-modeled GSIs, and keeps the P1 line orders of magnitude below the DynamoDB alternative ($80 vs $17k/mo at 10k/day). It remains a rebuildable projection of the log, preserving the P1 classification.
 
 Trigger for revisiting this decision: post-MVP, consumers requiring a sub-hour, millisecond-latency read of an individual work item's status.
 
