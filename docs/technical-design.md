@@ -293,7 +293,7 @@ A stream/log consumer upserts current state into one Postgres table with seconda
 | KMS | $1 | $1 | table CMK |
 | **Total (3-mo)** | **~$555/mo** | **~$8,400/mo** | I/O-Optimized chosen to neutralise per-I/O write charges |
 
-**Strengths:** millisecond reads **and** fully flexible interactive SQL (ad-hoc joins/filters); real-time freshness. **Weaknesses:** always-on floor (~$45–90/mo for the minimum ACU even when idle — it breaks the "~$0 at low scale" property the other two keep); ACU sizing is the dominant cost and the main estimate risk at high write rates; more operational surface than the two serverless options.
+**Strengths:** millisecond reads **and** fully flexible interactive SQL (ad-hoc joins/filters); real-time freshness. **Weaknesses:** ACU sizing is the dominant cost and the main estimate risk at high write rates; more operational surface than the two serverless options.
 
 ### Comparison
 
