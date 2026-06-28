@@ -199,7 +199,7 @@ The hourly Glue/dbt job folds the log into an Iceberg current-state table (one r
 | KMS — S3 key | shared | shared | reuses the audit-bucket CMK (already counted in P0) |
 | **Total (3-mo)** | **~$5/mo** | **~$80/mo** | |
 
-The transform is costed as an Athena/dbt Iceberg MERGE; run as a **Glue Spark** job instead, the same work is DPU-hour-priced (low single-digit $/mo at 200M, low-hundreds $/mo at 6,083M) — Athena/dbt is cheaper at this scan volume, so it sets the line above. QuickSight per-user (author/reader) licensing is separate and not volume-driven. **Recommend a 3-month window** for the current-state table — older state is already in the S3 audit log, so it need not be kept hot.
+The transform is costed as an Athena/dbt Iceberg MERGE. If run as a Glue Spark job instead, the same work is DPU-hour-priced (few dollars/month at 200M, few hundred dollars/month at 6,083M) — Athena/dbt is cheaper at this scan volume, so it sets the line above. QuickSight per-user (author/reader) licensing is separate and not volume-driven. **Recommend a 3-month window** for the current-state table — older state is already in the S3 audit log, so it need not be kept hot.
 
 > Because the projection reuses the audit-log pipeline (audit-log bucket source, same CMK, same query engine), its marginal cost is storage + transform only. The DynamoDB serving alternative — far more expensive at high volume, driven by `events × 3` writes — is costed in **Appendix A**.
 
@@ -248,7 +248,7 @@ Retention is **configurable per deployment**: default **3 years** for the S3 aud
 
 The worker has a single output — one structured event per work-item occurrence to **Firehose → S3 (Parquet, Object Lock, SSE-KMS)**, the append-only, Athena-queryable audit log that is the source of truth for both stores. The P1 status store is **derived from that log** by an hourly Glue/dbt job into an **Iceberg current-state table (latest-wins) + per-work-item rollups**, served by **QuickSight/SPICE** and **Athena** (P1: rebuildable from the log — §4).
 
-Cost scales: **P0** runs ~$1/mo at low scale to ~$4.6k/mo at 10k batches/day; **P1**, a thin derivation of the same pipeline, adds ~$5–80/mo — combined **~$160/mo (10k batches/mo)** to **~$4,720/mo (10k batches/day)**, with the audit log, not the status store, dominant. DynamoDB and Aurora serving alternatives are reserved for a sub-hour, ms-latency live-read need and costed in **Appendix A**.
+Cost scales: **P0** runs ~$1/mo at low scale to ~$4.6k/mo at 10k batches/day; **P1**, a thin derivation of the same pipeline, adds $5–80/mo — combined **$160/mo (10k batches/mo)** to **$4.7k/mo (10k batches/day)**, with the audit log, not the status store, dominant. DynamoDB and Aurora serving alternatives are reserved for a sub-hour, ms-latency live-read need and costed in **Appendix A**.
 
 ---
 
