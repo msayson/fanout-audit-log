@@ -1,28 +1,43 @@
 import { RemovalPolicy } from 'aws-cdk-lib/core';
 
 export enum Region {
-  US_EAST_2 = 'us-east-2',
-  US_WEST_2 = 'us-west-2',
+  PRIMARY = 'us-east-2',
+  REPLICA = 'us-west-2',
 }
 
 export interface StageConfig {
-  readonly retentionYears: number;
-  readonly removalPolicy: RemovalPolicy;
+  readonly appQualifier: string;
   readonly primaryRegion: string;
   readonly replicaRegion: string;
+  readonly removalPolicy: RemovalPolicy;
+  readonly objectLockDurationDays: number;
+  readonly retentionDays: number;
+  readonly firehoseBufferSizeMb: number;
+  readonly firehoseBufferIntervalSec: number;
+  readonly athenaBytesScannedCutoffGb: number;
 }
 
 export const STAGE_CONFIGS: Record<string, StageConfig> = {
   dev: {
-    retentionYears: 1,
+    appQualifier: 'fanout-dev',
+    primaryRegion: Region.PRIMARY,
+    replicaRegion: Region.REPLICA,
     removalPolicy: RemovalPolicy.DESTROY,
-    primaryRegion: Region.US_EAST_2,
-    replicaRegion: Region.US_WEST_2,
+    objectLockDurationDays: 365,
+    retentionDays: 366,
+    firehoseBufferSizeMb: 128,
+    firehoseBufferIntervalSec: 300,
+    athenaBytesScannedCutoffGb: 100,
   },
   prod: {
-    retentionYears: 3,
+    appQualifier: 'fanout-prod',
+    primaryRegion: Region.PRIMARY,
+    replicaRegion: Region.REPLICA,
     removalPolicy: RemovalPolicy.RETAIN,
-    primaryRegion: Region.US_EAST_2,
-    replicaRegion: Region.US_WEST_2,
+    objectLockDurationDays: 3 * 365,
+    retentionDays: 3 * 365 + 1,
+    firehoseBufferSizeMb: 128,
+    firehoseBufferIntervalSec: 300,
+    athenaBytesScannedCutoffGb: 1000,
   },
 };

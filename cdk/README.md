@@ -1,15 +1,24 @@
 # Fanout Audit Log Infrastructure
 
-This package defines the Fanout Audit Log infrastructure as code using AWS CDK.
+AWS CDK (TypeScript) infrastructure for the fanout audit log. See `docs/tasks/tasks-audit-log-p0.md` for implementation status.
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+## Stacks
+
+| Stack | Description |
+|---|---|
+| `*-Replica` | Disaster-recovery S3 bucket and CMK in the secondary region. Deploy first. |
+| `*-Storage` | Audit S3 bucket (WORM, SSE-KMS, versioning), lifecycle rule, cross-region replication. |
+| `*-Catalog` | Glue database and audit-event table with `dt` partition projection. |
+| `*-Ingest` | Firehose delivery stream (Parquet conversion) and worker ingest helper. |
+| `*-Query` | Athena workgroup, results bucket, and named audit queries. |
+| `*-Observability` | CloudWatch alarms and CloudTrail for CMK decrypt events. |
+
+Deploy order: Replica → Storage → Catalog → Ingest → Query / Observability.
 
 ## Useful commands
 
-* `npm install`     install dependencies, prereq for running tests or deployments
-* `npm run build`   compile typescript to js
-* `npm run watch`   watch for changes and compile
-* `npm run test`    perform the jest unit tests
-* `npx cdk deploy`  deploy this stack to your default AWS account/region
+* `npm run test`    compile and run jest unit tests
+* `npx cdk synth`   synthesize CloudFormation templates
+* `npx cdk deploy`  deploy to your default AWS account/region
 * `npx cdk diff`    compare deployed stack with current state
-* `npx cdk synth`   emits the synthesized CloudFormation template
+
