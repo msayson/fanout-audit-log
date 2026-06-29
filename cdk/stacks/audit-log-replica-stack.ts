@@ -13,27 +13,30 @@ export interface AuditLogReplicaStackProps extends AuditLogBaseProps {}
  * Bucket name is deterministic; only the KMS key ARN needs to be passed back as context.
  */
 export class AuditLogReplicaStack extends cdk.Stack {
-  public readonly kmsKeyArn?: string;
+  /** CMK ARN when useCmk: true; alias ARN (arn:aws:kms:REGION:ACCOUNT:alias/aws/s3) when false. */
+  public readonly kmsKeyArn: string;
 
   constructor(scope: Construct, id: string, props: cdk.StackProps & AuditLogReplicaStackProps) {
     super(scope, id, props);
 
-    let key: kms.Key | undefined;
+    // useCmk: true  → create a CMK
+    // useCmk: false → no key object; bucket uses KMS_MANAGED (aws/s3); alias ARN is deterministic
+    let key: kms.IKey | undefined;
     if (props.useCmk) {
       key = new kms.Key(this, 'ReplicaKey', {
         description: `${props.appQualifier} audit-log replica CMK`,
         enableKeyRotation: true,
         removalPolicy: props.removalPolicy,
       });
-      this.kmsKeyArn = key.keyArn;
       new cdk.CfnOutput(this, 'KmsKeyArn', { value: key.keyArn });
     }
 
+    this.kmsKeyArn = key?.keyArn ?? `arn:aws:kms:${this.region}:${this.account}:alias/aws/s3`;
+
     new s3.Bucket(this, 'ReplicaBucket', {
       bucketName: auditReplicaBucketName(this.account, props.stage),
-      ...(key
-        ? { encryptionKey: key, bucketKeyEnabled: true }
-        : { encryption: s3.BucketEncryption.S3_MANAGED }),
+      ...(key ? { encryptionKey: key } : { encryption: s3.BucketEncryption.KMS_MANAGED }),
+      bucketKeyEnabled: true,
       versioned: true,
       objectLockEnabled: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,

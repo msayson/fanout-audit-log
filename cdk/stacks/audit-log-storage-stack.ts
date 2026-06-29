@@ -13,31 +13,36 @@ export interface AuditLogStorageStackProps extends AuditLogBaseProps {
   readonly retentionDays: number;
   readonly replicaAccount: string;
   readonly replicaRegion: string;
-  readonly replicaKmsKeyArn?: string;
+  readonly replicaKmsKeyArn: string;
 }
+
+/** Root prefix Firehose uses for delivery failures; shared with AuditLogIngestStack. */
+export const FIREHOSE_ERROR_PREFIX = 'errors/';
 
 /**
  * P0 storage foundation: audit S3 bucket (WORM/versioning), lifecycle rule,
  * and cross-region replication to the pre-deployed AuditLogReplicaStack bucket.
- * When useCmk is true, SSE-KMS with CMKs is used; otherwise SSE-S3 (no key cost).
+ * When useCmk is true, SSE-KMS with a CMK is used; otherwise the AWS-managed
+ * aws/s3 key is looked up at synthesis time and used in the same way.
  */
 export class AuditLogStorageStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: cdk.StackProps & AuditLogStorageStackProps) {
     super(scope, id, props);
 
-    const key = props.useCmk
+    // useCmk: true  → create a CMK
+    // useCmk: false → look up the aws/s3 AWS-managed key; its ARN is cached in cdk.context.json
+    const key: kms.IKey = props.useCmk
       ? new kms.Key(this, 'AuditLogKey', {
           description: `${props.appQualifier} audit-log CMK`,
           enableKeyRotation: true,
           removalPolicy: props.removalPolicy,
         })
-      : undefined;
+      : kms.Key.fromLookup(this, 'AuditLogKey', { aliasName: 'alias/aws/s3' });
 
     const bucket = new s3.Bucket(this, 'AuditLogBucket', {
       bucketName: auditBucketName(this.account, props.stage),
-      ...(key
-        ? { encryptionKey: key, bucketKeyEnabled: true }
-        : { encryption: s3.BucketEncryption.S3_MANAGED }),
+      encryptionKey: key,
+      bucketKeyEnabled: true,
       versioned: true,
       objectLockEnabled: true,
       objectLockDefaultRetention: s3.ObjectLockRetention.governance(
@@ -54,20 +59,29 @@ export class AuditLogStorageStack extends cdk.Stack {
       noncurrentVersionExpiration: cdk.Duration.days(props.retentionDays),
     });
 
+    bucket.addMetric({ id: 'error-prefix', prefix: FIREHOSE_ERROR_PREFIX });
+
     // Cross-region replication to the pre-deployed AuditLogReplicaStack bucket
     const replicaBucketArn = `arn:aws:s3:::${auditReplicaBucketName(props.replicaAccount, props.stage)}`;
     const replicaBucket = s3.Bucket.fromBucketArn(this, 'ReplicaBucket', replicaBucketArn);
-    const replicaKey = props.useCmk && props.replicaKmsKeyArn
-      ? kms.Key.fromKeyArn(this, 'ReplicaKey', props.replicaKmsKeyArn)
-      : undefined;
+    const replicaKey = kms.Key.fromKeyArn(this, 'ReplicaKey', props.replicaKmsKeyArn);
 
     const replicationRole = new iam.Role(this, 'ReplicationRole', {
       assumedBy: new iam.ServicePrincipal('s3.amazonaws.com'),
     });
     bucket.grantRead(replicationRole);
     replicaBucket.grantWrite(replicationRole);
-    key?.grantDecrypt(replicationRole);
-    replicaKey?.grantEncrypt(replicationRole);
+    key.grantDecrypt(replicationRole);
+    replicaKey.grantEncrypt(replicationRole);
+
+    replicationRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['s3:GetReplicationConfiguration'],
+      resources: [bucket.bucketArn],
+    }));
+    replicationRole.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['s3:ReplicateObject', 's3:ReplicateDelete', 's3:ReplicateTags'],
+      resources: [`${replicaBucketArn}/*`],
+    }));
 
     const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
     cfnBucket.replicationConfiguration = {
@@ -78,18 +92,19 @@ export class AuditLogStorageStack extends cdk.Stack {
         status: 'Enabled',
         destination: {
           bucket: replicaBucket.bucketArn,
-          ...(replicaKey && { encryptionConfiguration: { replicaKmsKeyId: replicaKey.keyArn } }),
+          encryptionConfiguration: { replicaKmsKeyId: replicaKey.keyArn },
           replicationTime: { status: 'Enabled', time: { minutes: 15 } },
           metrics: { status: 'Enabled', eventThreshold: { minutes: 15 } },
         },
-        ...(key && { sourceSelectionCriteria: { sseKmsEncryptedObjects: { status: 'Enabled' } } }),
+        // SSE-KMS objects (both CMK and AWS-managed) are never replicated unless explicitly enabled
+        sourceSelectionCriteria: { sseKmsEncryptedObjects: { status: 'Enabled' } },
         deleteMarkerReplication: { status: 'Disabled' },
         filter: { prefix: '' },
       }],
     };
 
     // Publish CMK ARN to SSM — KMS key ARNs are not inferrable
-    if (key) {
+    if (props.useCmk) {
       new ssm.StringParameter(this, 'KmsKeyArnParam', {
         parameterName: SSM.auditKmsKeyArn(this.account, props.stage),
         stringValue: key.keyArn,

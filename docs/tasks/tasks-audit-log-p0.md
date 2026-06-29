@@ -1,5 +1,5 @@
 # Tasks: Audit Log P0
-**Status:** not started
+**Status:** in-progress
 **Design:** [work-item-lifecycle-tracking-design.md](../design/work-item-lifecycle-tracking-design.md)
 **Requirements:** [req-audit-log.md](../requirements/req-audit-log.md)
 
@@ -16,19 +16,19 @@ Tasks are ordered by dependency. Each task is **independently deployable and tes
 **CDK stacks and scopes.**
 | Stack | Owns |
 |---|---|
-| `AuditLogStorageStack` | KMS CMK, audit S3 bucket (Object Lock + versioning + Bucket Keys + SSE-KMS), lifecycle rule |
+| `AuditLogStorageStack` | audit S3 bucket (Object Lock + versioning + lifecycle rule); KMS CMK + SSE-KMS + Bucket Keys when `useCmk: true`, SSE-S3 when `false` |
 | `AuditLogCatalogStack` | Glue database + audit-event table (schema, `dt` partition, partition projection) |
 | `AuditLogIngestStack` | Firehose delivery stream + its delivery IAM role |
 | `AuditLogQueryStack` | Athena workgroup + results bucket + named queries |
-| `AuditLogObservabilityStack` | CloudWatch alarms, CloudTrail for CMK decrypts |
+| `AuditLogObservabilityStack` | CloudWatch alarms; CloudTrail for CMK decrypts (when `useCmk: true`) |
 
 **Cross-stack wiring (keep the graph acyclic + Storage independently updatable).**
-- Share Storage's bucket name/ARN + CMK ARN via **SSM parameters** (Storage writes; downstream reads with `valueForStringParameter` / `fromStringParameterName`) — **not** `CfnOutput` exports. Exports get locked while imported and block Storage updates (and can force replace-instead-of-update); SSM gives deploy-ordering without the lock. Don't re-derive names.
+- Bucket names are deterministic (derived from account + stage); downstream stacks reconstruct them with the shared `auditBucketName()` / `auditReplicaBucketName()` helpers — no SSM needed for bucket name or ARN. Use **SSM** only for values that cannot be inferred: when `useCmk: true`, publish the CMK ARN (Storage writes; downstream reads with `valueForStringParameter`). Skip the CMK SSM parameter when `useCmk: false`. Never use `CfnOutput` exports for cross-stack sharing — exports lock while imported and block Storage updates.
 - Author every bucket/key **grant in the *consuming* stack** against the imported resource (e.g. `key.grantEncryptDecrypt(role)` and `bucket.grantWrite(role)` in Ingest), so CDK adds the permission to the *role's identity policy*. **Never** reference a downstream role ARN from Storage (CMK key policy or bucket policy) — that adds a Storage→consumer edge and closes a cycle.
 - Dependency direction is one-way toward Storage: **Storage → Catalog → Ingest → Query/Observability**. Keep it that way.
 
 **Context keys** (define once in the CDK app; tasks reference by name):
-`primaryRegion`, `objectLockDurationDays`, `retentionDays` (must be ≥ `objectLockDurationDays`), `firehoseBufferSizeMb` (default 128), `firehoseBufferIntervalSec` (default 300), `athenaBytesScannedCutoffGb`, `appQualifier` (resource-name prefix). *(P1 adds `replicaRegion`.)*
+`primaryRegion`, `objectLockDurationDays`, `retentionDays` (must be ≥ `objectLockDurationDays`), `firehoseBufferSizeMb` (default 128), `firehoseBufferIntervalSec` (default 300), `athenaBytesScannedCutoffGb`, `appQualifier` (resource-name prefix), `useCmk` (`false` for dev — SSE-S3, no key cost; `true` for non-dev — SSE-KMS with CMK). *(P1 adds `replicaRegion`.)*
 
 **Naming / tagging.** All resources `<appQualifier>-auditlog-<purpose>`; apply a common tag set (app, env, owner) at the app level.
 
@@ -36,15 +36,15 @@ Tasks are ordered by dependency. Each task is **independently deployable and tes
 
 ## Group 0 — Bootstrap
 
-- [ ] **P0-00** CDK app skeleton: instantiate the five stacks above with explicit `env` (account + `primaryRegion`), wire the context keys and naming/tagging convention, and declare inter-stack dependencies. No resources yet — stacks synth empty.
+- [x] **P0-00** CDK app skeleton: instantiate the five stacks above with explicit `env` (account + `primaryRegion`), wire the context keys and naming/tagging convention, and declare inter-stack dependencies. No resources yet — stacks synth empty.
   *Deploy/test:* `cdk synth` produces five templates; `cdk deploy --all` is a no-op success.
 
 ---
 
 ## Group 1 — Storage foundation
 
-- [ ] **P0-01** `AuditLogStorageStack`: KMS CMK (`enableKeyRotation: true`) + audit S3 bucket with **versioning**, **Object Lock GOVERNANCE** (`objectLockDurationDays`; Object Lock must be set at bucket creation), **SSE-KMS** with the CMK, **S3 Bucket Keys enabled**, and a lifecycle rule with expiration = `retentionDays` (≥ Object Lock duration, so WORM never blocks the lifecycle delete). Publish bucket name/ARN + CMK ARN to **SSM** (see Conventions). If the P0-08 error-prefix alarm needs S3 request metrics, define the bucket's **request-metrics configuration here** (it's a bucket property), not in Observability.
-  *Deploy/test:* deploy; PutObject as admin → object is KMS-encrypted, versioned, and carries a retain-until date; lifecycle rule visible.
+- [x] **P0-01** `AuditLogStorageStack`: audit S3 bucket with **versioning**, **Object Lock GOVERNANCE** (`objectLockDurationDays`; Object Lock must be set at bucket creation), and a lifecycle rule with expiration = `retentionDays` (≥ Object Lock duration, so WORM never blocks the lifecycle delete). When `useCmk: true`: KMS CMK (`enableKeyRotation: true`), **SSE-KMS** with the CMK, **S3 Bucket Keys enabled**, CMK ARN published to SSM. When `useCmk: false`: **SSE-S3** (no CMK, no CMK SSM param). Bucket name/ARN are not published to SSM — they are deterministic and derived by downstream stacks via the shared bucket-name helpers. If the P0-08 error-prefix alarm needs S3 request metrics, define the bucket's **request-metrics configuration here** (it's a bucket property), not in Observability.
+  *Deploy/test:* deploy; PutObject as admin → object is encrypted, versioned, and carries a retain-until date; lifecycle rule visible.
 
 ---
 
@@ -60,7 +60,7 @@ Tasks are ordered by dependency. Each task is **independently deployable and tes
 
 ## Group 3 — Ingest
 
-- [ ] **P0-04** `AuditLogIngestStack`: Firehose delivery stream (**direct put**) with **record-format-conversion to Parquet** using the P0-03 Glue table, buffering from `firehoseBufferSizeMb`/`firehoseBufferIntervalSec`, destination = audit bucket with `dt=!{timestamp:yyyy/MM/dd}` prefix and an **`errorOutputPrefix`** for delivery failures, SSE via the P0-01 CMK. Create the **Firehose delivery role**: write to the bucket (data + error prefixes), read the Glue table, `kms:GenerateDataKey`/`Decrypt` on the CMK. Author these grants **in this stack** against the imported bucket/CMK (identity-based on the delivery role) — do **not** add a bucket policy or CMK key-policy statement that references the delivery-role ARN, which would create a Storage→Ingest cycle.
+- [ ] **P0-04** `AuditLogIngestStack`: Firehose delivery stream (**direct put**) with **record-format-conversion to Parquet** using the P0-03 Glue table, buffering from `firehoseBufferSizeMb`/`firehoseBufferIntervalSec`, destination = audit bucket with `dt=!{timestamp:yyyy/MM/dd}` prefix and an **`errorOutputPrefix`** for delivery failures. When `useCmk: true`, configure Firehose SSE via the P0-01 CMK. Create the **Firehose delivery role**: write to the bucket (data + error prefixes), read the Glue table; when `useCmk: true` also grant `kms:GenerateDataKey`/`Decrypt` on the CMK. Author these grants **in this stack** against the imported bucket/CMK (identity-based on the delivery role) — do **not** add a bucket policy or CMK key-policy statement that references the delivery-role ARN, which would create a Storage→Ingest cycle.
   *Deploy/test:* `PutRecord` a sample event (matching P0-02) → within one buffer interval a Parquet object lands under `dt=…`; a malformed record lands under the error prefix.
 
 - [ ] **P0-05** Worker ingest helper (code): `putAuditEvent()` wrapping `PutRecord` with exponential backoff + jitter, retry-vs-terminal classification (throttling → retry; persistent failure → surface as unit-of-work failure), validating payload against P0-02. Grant the worker role `firehose:PutRecord` on the P0-04 stream.
@@ -70,7 +70,7 @@ Tasks are ordered by dependency. Each task is **independently deployable and tes
 
 ## Group 4 — Query
 
-- [ ] **P0-06** `AuditLogQueryStack`: Athena workgroup with a dedicated **results bucket** (SSE-KMS, short lifecycle expiry) as output location, and a **`BytesScannedCutoffPerQuery`** control limit = `athenaBytesScannedCutoffGb` (hard per-query cap).
+- [ ] **P0-06** `AuditLogQueryStack`: Athena workgroup with a dedicated **results bucket** (SSE-KMS when `useCmk: true`, SSE-S3 when `false`; short lifecycle expiry) as output location, and a **`BytesScannedCutoffPerQuery`** control limit = `athenaBytesScannedCutoffGb` (hard per-query cap).
   *Deploy/test:* run an ad-hoc query in the workgroup → results written to the results bucket; a query exceeding the cutoff is rejected.
 
 - [ ] **P0-07** Named queries in the P0-06 workgroup over the P0-03 table: **events by `batch_id`**, **by `item_id`**, **by `tenant_id`** — each taking a date range, pruning on `dt` with the P0-03 lookback window, and **deduplicating on `event_id`** (`COUNT(DISTINCT …)` / `ROW_NUMBER()` over `event_id`).
@@ -80,8 +80,8 @@ Tasks are ordered by dependency. Each task is **independently deployable and tes
 
 ## Group 5 — Observability
 
-- [ ] **P0-08** `AuditLogObservabilityStack`: CloudWatch alarms for (a) **error-prefix object count > 0** (Firehose delivery failures) and (b) **`DeliveryToS3.Success` < threshold** over N periods; plus a **CloudTrail** trail/event-selector capturing `kms:Decrypt` on the P0-01 CMK, writing to a **dedicated trail-logs bucket owned by this stack** (don't repoint or re-policy the audit bucket from here — that splits Storage ownership and adds an Observability→Storage edge). Alarms reference metrics by namespace/name **string**, so they add no CFN dependency on Storage/Ingest. (Key rotation is already enabled in P0-01.)
-  *Deploy/test:* deploy; synthetically drop an object under the error prefix → alarm enters ALARM; a decrypt against the CMK appears in CloudTrail.
+- [ ] **P0-08** `AuditLogObservabilityStack`: CloudWatch alarms for (a) **error-prefix object count > 0** (Firehose delivery failures) and (b) **`DeliveryToS3.Success` < threshold** over N periods. When `useCmk: true`, add a **CloudTrail** trail/event-selector capturing `kms:Decrypt` on the P0-01 CMK, writing to a **dedicated trail-logs bucket owned by this stack** (don't repoint or re-policy the audit bucket from here — that splits Storage ownership and adds an Observability→Storage edge). Alarms reference metrics by namespace/name **string**, so they add no CFN dependency on Storage/Ingest. (Key rotation is already enabled in P0-01 when `useCmk: true`.)
+  *Deploy/test:* deploy; synthetically drop an object under the error prefix → alarm enters ALARM; when `useCmk: true`, a decrypt against the CMK appears in CloudTrail.
 
 ---
 
@@ -99,9 +99,9 @@ Tasks are ordered by dependency. Each task is **independently deployable and tes
 
 > Do **not** start until all P0 tasks are end-to-end complete and verified. This is the only cross-region work; it adds disaster-recovery durability and changes no P0 functional behaviour.
 
-- [ ] **P1-01** Cross-region replication of the audit log. Introduce `AuditLogReplicaStack` in `replicaRegion` (replica KMS CMK + replica S3 bucket with versioning + Object Lock GOVERNANCE matching `objectLockDurationDays`), then extend `AuditLogStorageStack` with a **replication role + rule** (audit bucket → replica bucket). Specifics:
-  - Replication role: read/replicate source objects + retention metadata, `kms:Decrypt` on the source CMK, `kms:Encrypt` on the replica CMK; the **replica CMK key policy must allow this role** (the classic cross-region-KMS replication failure — set both sides). Define the role and rule **in `AuditLogStorageStack`** (the bucket's owner) so the Storage→replica grant points outward to the imported replica ARNs and doesn't create an inbound edge.
-  - Pass the replica bucket/CMK ARNs to the primary stack via context/SSM (CloudFormation cross-stack refs do not cross regions).
+- [-] **P1-01** Cross-region replication of the audit log. Introduce `AuditLogReplicaStack` in `replicaRegion` (replica S3 bucket with versioning + Object Lock GOVERNANCE matching `objectLockDurationDays`; replica KMS CMK when `useCmk: true`), then extend `AuditLogStorageStack` with a **replication role + rule** (audit bucket → replica bucket). Specifics:
+  - Replication role: read/replicate source objects + retention metadata. When `useCmk: true`: `kms:Decrypt` on the source CMK, `kms:Encrypt` on the replica CMK; the **replica CMK key policy must allow this role** (the classic cross-region-KMS replication failure — set both sides). Define the role and rule **in `AuditLogStorageStack`** (the bucket's owner) so the Storage→replica grant points outward to the imported replica ARNs and doesn't create an inbound edge.
+  - Pass the replica bucket ARN (and CMK ARN when `useCmk: true`) to the primary stack via CDK `crossRegionReferences: true` on both stacks (preferred over manual context/SSM).
   - Decide whether the rule includes the `errorOutputPrefix` objects (replicate them — they are part of the durable record).
   - **Backfill**: replication copies only objects written after the rule is enabled; run S3 Batch Replication if pre-existing objects must be mirrored.
   - **Monitoring**: alarm on `OperationFailedReplication` and replication latency (un-replicated objects fail silently with no error written to the replica).
