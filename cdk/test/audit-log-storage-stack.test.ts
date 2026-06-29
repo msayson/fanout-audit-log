@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib/core';
 import { Match, Template } from 'aws-cdk-lib/assertions';
-import { RemovalPolicy, Resource } from 'aws-cdk-lib/core';
+import { RemovalPolicy } from 'aws-cdk-lib/core';
 import { AuditLogStorageStack } from '../stacks/audit-log-storage-stack';
 
 const baseProps = {
@@ -41,18 +41,33 @@ test('audit bucket configuration — useCmk: false (aws/s3 managed key)', () => 
     },
   });
 
-  // AWS-managed key: no concrete ARN at synth time; permissions scoped by ViaService+ResourceAliases
-  template.hasResourceProperties('AWS::IAM::Policy', {
-    PolicyDocument: { Statement: Match.arrayWith([
-      Match.objectLike({ Action: Match.arrayWith(['kms:Decrypt']) }),
-      Match.objectLike({
-        Action: Match.arrayWith(['kms:Encrypt']),
-        Resource: 'arn:aws:kms:us-west-2:123456789012:key/replica-key-id'
-      }),
-      Match.objectLike({ Action: 's3:GetReplicationConfiguration',
-                         Resource: { "Fn::GetAtt": [ "AuditLogBucketCB3C9E27", "Arn" ] } }),
-      Match.objectLike({ Action: Match.arrayWith(['s3:ReplicateObject', 's3:ReplicateDelete', 's3:ReplicateTags']) }),
-    ])},
+  // Check each IAM statement independently — Match.arrayWith is order-sensitive so grouping
+  // multiple patterns together would require knowing CDK's internal statement ordering.
+  const hasStatement = (stmt: object) =>
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: { Statement: Match.arrayWith([Match.objectLike(stmt)]) },
+    });
+
+  // CRR-specific S3 actions
+  hasStatement({ Action: 's3:GetReplicationConfiguration' });
+  hasStatement({ Action: Match.arrayWith(['s3:ReplicateObject', 's3:ReplicateDelete', 's3:ReplicateTags']) });
+
+  // AWS-managed aws/s3: no concrete key ARN at synth time; scoped by ViaService+ResourceAliases
+  hasStatement({
+    Action: Match.arrayWith(['kms:Decrypt']),
+    Resource: '*',
+    Condition: {
+      StringEquals: { 'kms:ViaService': 's3.us-east-2.amazonaws.com' },
+      'ForAnyValue:StringEquals': { 'kms:ResourceAliases': 'alias/aws/s3' },
+    },
+  });
+  hasStatement({
+    Action: Match.arrayWith(['kms:Encrypt']),
+    Resource: '*',
+    Condition: {
+      StringEquals: { 'kms:ViaService': 's3.us-west-2.amazonaws.com' },
+      'ForAnyValue:StringEquals': { 'kms:ResourceAliases': 'alias/aws/s3' },
+    },
   });
 
   template.resourceCountIs('AWS::KMS::Key', 0);
@@ -85,17 +100,19 @@ test('audit bucket configuration — useCmk: true (SSE-KMS CMK)', () => {
     },
   });
 
-  // CMK: use CDK grants — verify specific ARNs rather than wildcards
-  template.hasResourceProperties('AWS::IAM::Policy', {
-    PolicyDocument: { Statement: Match.arrayWith([
-      Match.objectLike({ Action: Match.arrayWith(['kms:Decrypt']) }),
-      Match.objectLike({ Action: Match.arrayWith(['kms:Encrypt']),
-                         Resource: 'arn:aws:kms:us-west-2:123456789012:key/replica-key-id' }),
-      Match.objectLike({ Action: 's3:GetReplicationConfiguration',
-                         Resource: { "Fn::GetAtt": [ "AuditLogBucketCB3C9E27", "Arn" ] } }),
-      Match.objectLike({ Action: Match.arrayWith(['s3:ReplicateObject', 's3:ReplicateDelete', 's3:ReplicateTags']) }),
-    ])},
-  });
+  const hasStatement = (stmt: object) =>
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: { Statement: Match.arrayWith([Match.objectLike(stmt)]) },
+    });
+
+  // CRR-specific S3 actions
+  hasStatement({ Action: 's3:GetReplicationConfiguration' });
+  hasStatement({ Action: Match.arrayWith(['s3:ReplicateObject', 's3:ReplicateDelete', 's3:ReplicateTags']) });
+
+  // CMK: CDK grants produce concrete key ARNs; grantEncrypt covers Encrypt + GenerateDataKey* + ReEncrypt*
+  hasStatement({ Action: Match.arrayWith(['kms:Decrypt']) });
+  hasStatement({ Action: Match.arrayWith(['kms:Encrypt']),
+                 Resource: 'arn:aws:kms:us-west-2:123456789012:key/replica-key-id' });
 
   template.hasResourceProperties('AWS::KMS::Key', { EnableKeyRotation: true });
   template.resourceCountIs('AWS::SSM::Parameter', 1);
