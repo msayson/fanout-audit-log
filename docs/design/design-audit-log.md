@@ -2,7 +2,7 @@
 
 **Status:** approved
 **Requirements:** [req-audit-log.md](../requirements/req-audit-log.md)
-**Key ADRs:** [decisions-0001-firehose-over-lambda.md](../decisions/adr-0001-firehose-over-lambda.md), [decisions-0002-p1-serving-store.md](../decisions/adr-0002-p1-serving-store.md)
+**Key ADRs:** [adr-0001-firehose-over-lambda.md](../decisions/adr-0001-firehose-over-lambda.md), [adr-0002-p1-serving-store.md](../decisions/adr-0002-p1-serving-store.md), [adr-0003-lambda-kotlin-worker.md](../decisions/adr-0003-lambda-kotlin-worker.md)
 **Tasks:** [tasks-audit-log-p0.md](../tasks/tasks-audit-log-p0.md)
 
 ---
@@ -13,8 +13,9 @@ This file is the navigational entry point for the P0 audit log. It exists to mak
 
 ## Summary
 
-The audit log is the system of record. The worker emits one structured event per work-item occurrence directly to Amazon Data Firehose. Firehose buffers, converts to Parquet, and writes date-partitioned objects to S3 (Object Lock, SSE-KMS). Athena queries the log via a Glue table with partition projection.
+The audit log is the system of record. The worker — a **Kotlin Lambda function** — executes fan-out work items and emits one structured event per occurrence directly to Amazon Data Firehose. Firehose buffers, converts to Parquet, and writes date-partitioned objects to S3 (Object Lock, SSE-KMS). Athena queries the log via a Glue table with partition projection.
 
+**Worker runtime:** AWS Lambda, Kotlin on the Java runtime, ARM64 (Graviton), SnapStart enabled. See ADR-0003.
 **Source of truth:** S3 audit bucket.
 **Query engine:** Athena.
 **Ingest:** Firehose direct put (no streaming bus).
