@@ -25,6 +25,7 @@ Tags.of(app).add('env', stage);
 const replicaStack = new AuditLogReplicaStack(app, `${c.appQualifier}-Replica`, {
   ...base,
   crossRegionReferences: true,
+  objectLockDurationDays: c.objectLockDurationDays,
   env: { account: replicaAccount, region: c.replicaRegion },
 });
 

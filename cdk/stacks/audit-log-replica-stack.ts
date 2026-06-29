@@ -5,12 +5,14 @@ import { Construct } from 'constructs';
 import { AuditLogBaseProps } from '../interfaces/stack-props';
 import { auditReplicaBucketName } from '../utils/bucket-names';
 
-export interface AuditLogReplicaStackProps extends AuditLogBaseProps {}
+export interface AuditLogReplicaStackProps extends AuditLogBaseProps {
+  readonly objectLockDurationDays: number;
+}
 
 /**
  * Disaster-recovery bucket in the secondary region. A separate stack is required because CDK stacks
  * are single-region; this must be deployed first so its KMS key ARN can be passed into AuditLogStorageStack.
- * Bucket name is deterministic; only the KMS key ARN needs to be passed back as context.
+ * Bucket name is deterministic; only the KMS key ARN needs to be passed back as a CDK property.
  */
 export class AuditLogReplicaStack extends cdk.Stack {
   /** CMK ARN when useCmk: true; alias ARN (arn:aws:kms:REGION:ACCOUNT:alias/aws/s3) when false. */
@@ -28,7 +30,6 @@ export class AuditLogReplicaStack extends cdk.Stack {
         enableKeyRotation: true,
         removalPolicy: props.removalPolicy,
       });
-      new cdk.CfnOutput(this, 'KmsKeyArn', { value: key.keyArn });
     }
 
     this.kmsKeyArn = key?.keyArn ?? `arn:aws:kms:${this.region}:${this.account}:alias/aws/s3`;
@@ -39,6 +40,9 @@ export class AuditLogReplicaStack extends cdk.Stack {
       bucketKeyEnabled: true,
       versioned: true,
       objectLockEnabled: true,
+      objectLockDefaultRetention: s3.ObjectLockRetention.governance(
+        cdk.Duration.days(props.objectLockDurationDays),
+      ),
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: props.removalPolicy,
     });
