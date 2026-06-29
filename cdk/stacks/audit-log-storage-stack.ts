@@ -13,28 +13,31 @@ export interface AuditLogStorageStackProps extends AuditLogBaseProps {
   readonly retentionDays: number;
   readonly replicaAccount: string;
   readonly replicaRegion: string;
-  readonly replicaKmsKeyArn: string;
+  readonly replicaKmsKeyArn?: string;
 }
 
 /**
- * P0 storage foundation: CMK, audit S3 bucket (WORM/SSE-KMS/versioning), lifecycle rule,
+ * P0 storage foundation: audit S3 bucket (WORM/versioning), lifecycle rule,
  * and cross-region replication to the pre-deployed AuditLogReplicaStack bucket.
- * Both bucket names are deterministic; only the replica CMK ARN is passed as a prop.
+ * When useCmk is true, SSE-KMS with CMKs is used; otherwise SSE-S3 (no key cost).
  */
 export class AuditLogStorageStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: cdk.StackProps & AuditLogStorageStackProps) {
     super(scope, id, props);
 
-    const key = new kms.Key(this, 'AuditLogKey', {
-      description: `${props.appQualifier} audit-log CMK`,
-      enableKeyRotation: true,
-      removalPolicy: props.removalPolicy,
-    });
+    const key = props.useCmk
+      ? new kms.Key(this, 'AuditLogKey', {
+          description: `${props.appQualifier} audit-log CMK`,
+          enableKeyRotation: true,
+          removalPolicy: props.removalPolicy,
+        })
+      : undefined;
 
     const bucket = new s3.Bucket(this, 'AuditLogBucket', {
       bucketName: auditBucketName(this.account, props.stage),
-      encryptionKey: key,
-      bucketKeyEnabled: true,
+      ...(key
+        ? { encryptionKey: key, bucketKeyEnabled: true }
+        : { encryption: s3.BucketEncryption.S3_MANAGED }),
       versioned: true,
       objectLockEnabled: true,
       objectLockDefaultRetention: s3.ObjectLockRetention.governance(
@@ -54,15 +57,17 @@ export class AuditLogStorageStack extends cdk.Stack {
     // Cross-region replication to the pre-deployed AuditLogReplicaStack bucket
     const replicaBucketArn = `arn:aws:s3:::${auditReplicaBucketName(props.replicaAccount, props.stage)}`;
     const replicaBucket = s3.Bucket.fromBucketArn(this, 'ReplicaBucket', replicaBucketArn);
-    const replicaKey = kms.Key.fromKeyArn(this, 'ReplicaKey', props.replicaKmsKeyArn);
+    const replicaKey = props.useCmk && props.replicaKmsKeyArn
+      ? kms.Key.fromKeyArn(this, 'ReplicaKey', props.replicaKmsKeyArn)
+      : undefined;
 
     const replicationRole = new iam.Role(this, 'ReplicationRole', {
       assumedBy: new iam.ServicePrincipal('s3.amazonaws.com'),
     });
     bucket.grantRead(replicationRole);
     replicaBucket.grantWrite(replicationRole);
-    key.grantDecrypt(replicationRole);
-    replicaKey.grantEncrypt(replicationRole);
+    key?.grantDecrypt(replicationRole);
+    replicaKey?.grantEncrypt(replicationRole);
 
     const cfnBucket = bucket.node.defaultChild as s3.CfnBucket;
     cfnBucket.replicationConfiguration = {
@@ -73,20 +78,22 @@ export class AuditLogStorageStack extends cdk.Stack {
         status: 'Enabled',
         destination: {
           bucket: replicaBucket.bucketArn,
-          encryptionConfiguration: { replicaKmsKeyId: replicaKey.keyArn },
+          ...(replicaKey && { encryptionConfiguration: { replicaKmsKeyId: replicaKey.keyArn } }),
           replicationTime: { status: 'Enabled', time: { minutes: 15 } },
           metrics: { status: 'Enabled', eventThreshold: { minutes: 15 } },
         },
-        sourceSelectionCriteria: { sseKmsEncryptedObjects: { status: 'Enabled' } },
+        ...(key && { sourceSelectionCriteria: { sseKmsEncryptedObjects: { status: 'Enabled' } } }),
         deleteMarkerReplication: { status: 'Disabled' },
         filter: { prefix: '' },
       }],
     };
 
     // Publish CMK ARN to SSM — KMS key ARNs are not inferrable
-    new ssm.StringParameter(this, 'KmsKeyArnParam', {
-      parameterName: SSM.auditKmsKeyArn(this.account, props.stage),
-      stringValue: key.keyArn,
-    });
+    if (key) {
+      new ssm.StringParameter(this, 'KmsKeyArnParam', {
+        parameterName: SSM.auditKmsKeyArn(this.account, props.stage),
+        stringValue: key.keyArn,
+      });
+    }
   }
 }

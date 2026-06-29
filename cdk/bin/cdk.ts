@@ -16,7 +16,7 @@ const c = STAGE_CONFIGS[stage];
 if (!c) throw new Error(`Unknown stage: ${stage}. Valid: ${Object.keys(STAGE_CONFIGS).join(', ')}`);
 
 const env = { account: process.env.CDK_DEFAULT_ACCOUNT, region: c.primaryRegion };
-const base = { stage, appQualifier: c.appQualifier, removalPolicy: c.removalPolicy };
+const base = { stage, appQualifier: c.appQualifier, removalPolicy: c.removalPolicy, useCmk: c.useCmk };
 const replicaAccount = process.env.CDK_DEFAULT_ACCOUNT!;
 
 Tags.of(app).add('app', c.appQualifier);

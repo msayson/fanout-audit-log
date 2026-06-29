@@ -10,6 +10,7 @@ export interface StageConfig {
   readonly primaryRegion: string;
   readonly replicaRegion: string;
   readonly removalPolicy: RemovalPolicy;
+  readonly useCmk: boolean;
   readonly objectLockDurationDays: number;
   readonly retentionDays: number;
   readonly firehoseBufferSizeMb: number;
@@ -23,6 +24,7 @@ export const STAGE_CONFIGS: Record<string, StageConfig> = {
     primaryRegion: Region.PRIMARY,
     replicaRegion: Region.REPLICA,
     removalPolicy: RemovalPolicy.DESTROY,
+    useCmk: false,
     objectLockDurationDays: 365,
     retentionDays: 366,
     firehoseBufferSizeMb: 128,
@@ -34,6 +36,7 @@ export const STAGE_CONFIGS: Record<string, StageConfig> = {
     primaryRegion: Region.PRIMARY,
     replicaRegion: Region.REPLICA,
     removalPolicy: RemovalPolicy.RETAIN,
+    useCmk: true,
     objectLockDurationDays: 3 * 365,
     retentionDays: 3 * 365 + 1,
     firehoseBufferSizeMb: 128,

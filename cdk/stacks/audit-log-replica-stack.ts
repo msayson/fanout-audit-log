@@ -13,29 +13,31 @@ export interface AuditLogReplicaStackProps extends AuditLogBaseProps {}
  * Bucket name is deterministic; only the KMS key ARN needs to be passed back as context.
  */
 export class AuditLogReplicaStack extends cdk.Stack {
-  public readonly kmsKeyArn: string;
+  public readonly kmsKeyArn?: string;
 
   constructor(scope: Construct, id: string, props: cdk.StackProps & AuditLogReplicaStackProps) {
     super(scope, id, props);
 
-    const key = new kms.Key(this, 'ReplicaKey', {
-      description: `${props.appQualifier} audit-log replica CMK`,
-      enableKeyRotation: true,
-      removalPolicy: props.removalPolicy,
-    });
+    let key: kms.Key | undefined;
+    if (props.useCmk) {
+      key = new kms.Key(this, 'ReplicaKey', {
+        description: `${props.appQualifier} audit-log replica CMK`,
+        enableKeyRotation: true,
+        removalPolicy: props.removalPolicy,
+      });
+      this.kmsKeyArn = key.keyArn;
+      new cdk.CfnOutput(this, 'KmsKeyArn', { value: key.keyArn });
+    }
 
     new s3.Bucket(this, 'ReplicaBucket', {
       bucketName: auditReplicaBucketName(this.account, props.stage),
-      encryptionKey: key,
-      bucketKeyEnabled: true,
+      ...(key
+        ? { encryptionKey: key, bucketKeyEnabled: true }
+        : { encryption: s3.BucketEncryption.S3_MANAGED }),
       versioned: true,
       objectLockEnabled: true,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: props.removalPolicy,
     });
-
-    this.kmsKeyArn = key.keyArn;
-
-    new cdk.CfnOutput(this, 'KmsKeyArn', { value: key.keyArn });
   }
 }
