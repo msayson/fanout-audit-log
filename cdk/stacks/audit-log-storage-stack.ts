@@ -69,6 +69,7 @@ export class AuditLogStorageStack extends cdk.Stack {
       role: replicationRole.roleArn,
       rules: [{
         id: 'replicate-all',
+        priority: 1,
         status: 'Enabled',
         destination: {
           bucket: replicaBucket.bucketArn,

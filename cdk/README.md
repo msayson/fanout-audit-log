@@ -22,3 +22,9 @@ Deploy order: Replica → Storage → Catalog → Ingest → Query / Observabili
 * `npx cdk deploy`  deploy to your default AWS account/region
 * `npx cdk diff`    compare deployed stack with current state
 
+## Steps to deploy changes to dev account
+
+1. Load local AWS credentials/profile for your dev account.
+2. Run `npm run test && npx cdk synth` and validate all tests pass and CDK stacks can be successfully synthesized into CloudFormation templates.
+3. Run `npx cdk bootstrap` if you have not done this before (one-time set-up) to deploy CDK toolkit resources required for subsequent CDK stack deployments.
+4. Run `npx cdk deploy --all` to deploy all CDK stacks to your dev account, or `npx cdk deploy SOME_STACK_NAME` to deploy a specific CDK stack.
