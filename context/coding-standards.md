@@ -7,6 +7,16 @@
 - **Immutability by default.** Prefer immutable data structures and append-only patterns; they reflect the domain model.
 - **Explicit over implicit.** Favour obvious, readable code over clever code. Comments explain *why*, not *what*.
 
+## CDK project layout
+
+```
+cdk/
+  constants/    # shared CDK constants (e.g. stage configs, account mappings)
+  constructs/   # reusable L3 constructs
+  interfaces/   # TypeScript interfaces shared across constructs and stacks
+  stacks/       # CDK stacks (one file per stack)
+```
+
 ## AWS CDK
 
 - All infrastructure is defined in CDK (TypeScript).
