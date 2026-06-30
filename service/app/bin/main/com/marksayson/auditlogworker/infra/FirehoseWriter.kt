@@ -13,7 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlin.math.min
 import kotlin.random.Random
-import java.util.logging.Logger
+import org.apache.logging.log4j.LogManager
 
 private const val BASE_DELAY_MS = 100L
 private const val CAP_DELAY_MS = 30_000L
@@ -26,7 +26,7 @@ class FirehoseWriter internal constructor(
     private val rng: Random = Random.Default,
 ) {
     companion object {
-        private val log = Logger.getLogger(FirehoseWriter::class.java.name)
+        private val log = LogManager.getLogger(FirehoseWriter::class.java)
         private val mapper = ObjectMapper()
             .registerModule(KotlinModule.Builder().build())
             .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
@@ -61,7 +61,7 @@ class FirehoseWriter internal constructor(
                 lastRetryable = e
             }
             val delayMs = jitter(attempt)
-            log.warning("Firehose throttled: stream=$streamName attempt=${attempt + 1}/$MAX_ATTEMPTS retryingInMs=$delayMs")
+            log.warn("Firehose throttled: stream=$streamName attempt=${attempt + 1}/$MAX_ATTEMPTS retryingInMs=$delayMs")
             if (attempt < MAX_ATTEMPTS - 1) delayFn(delayMs)
         }
         throw lastRetryable!!

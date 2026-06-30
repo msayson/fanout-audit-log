@@ -9,11 +9,11 @@ import com.marksayson.auditlogworker.infra.FirehoseWriter
 import com.marksayson.auditlogworker.model.AuditEvent
 import com.marksayson.auditlogworker.model.AuditEventValidator
 import kotlinx.coroutines.runBlocking
-import java.util.logging.Logger
+import org.apache.logging.log4j.LogManager
 
 class Handler : RequestHandler<Map<String, Any>, String> {
 
-    private val log = Logger.getLogger(Handler::class.java.name)
+    private val log = LogManager.getLogger(Handler::class.java)
 
     private val writer: FirehoseWriter
 
@@ -41,13 +41,13 @@ class Handler : RequestHandler<Map<String, Any>, String> {
         val auditEvent = try {
             mapper.convertValue(event, AuditEvent::class.java)
         } catch (e: Exception) {
-            log.warning("Deserialization failed: ${e.message}")
+            log.warn("Deserialization failed: ${e.message}")
             return "INVALID: ${e.message}"
         }
         try {
             AuditEventValidator.validate(auditEvent)
         } catch (e: IllegalArgumentException) {
-            log.warning("Validation failed: ${e.message}")
+            log.warn("Validation failed: ${e.message}")
             return "INVALID: ${e.message}"
         }
         log.info("Putting event to Firehose: stream=${writer.streamName} status=${auditEvent.status}")

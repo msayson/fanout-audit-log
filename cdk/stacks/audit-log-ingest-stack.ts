@@ -158,6 +158,7 @@ export class AuditLogIngestStack extends cdk.Stack {
       handler: 'com.marksayson.auditlogworker.Handler::handleRequest',
       code: lambda.Code.fromAsset(codePath),
       timeout: cdk.Duration.seconds(60),
+      loggingFormat: lambda.LoggingFormat.JSON,
       environment: {
         FIREHOSE_STREAM_NAME: this.deliveryStreamName,
       },

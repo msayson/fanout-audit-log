@@ -162,6 +162,7 @@ test('Lambda function has expected properties', () => {
     },
     FunctionName: 'fanout-dev-Ingest-Worker',
     Handler: 'com.marksayson.auditlogworker.Handler::handleRequest',
+    LoggingConfig: { LogFormat: 'JSON' },
     Runtime: 'java21',
     SnapStart: { ApplyOn: 'PublishedVersions' },
     Timeout: 60,
