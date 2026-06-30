@@ -9,7 +9,9 @@
       "Bash(./gradlew test *)",
       "Bash(./gradlew --stop)",
       "Bash(xargs -I{} sh -c 'jar tf \"{}\" 2>/dev/null | grep -l \"InternalApi\" && echo \"In: {}\"')",
-      "Bash(jar tf *)"
+      "Bash(jar tf *)",
+      "Bash(git -C /mnt/c/dev/fanout-audit-log diff --stat)",
+      "Bash(git -C /mnt/c/dev/fanout-audit-log diff --name-only)"
     ]
   }
 }

@@ -1,6 +1,8 @@
+import * as path from 'path';
 import * as cdk from 'aws-cdk-lib/core';
 import * as firehose from 'aws-cdk-lib/aws-kinesisfirehose';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 import { AuditLogBaseProps } from '../interfaces/stack-props';
@@ -12,6 +14,7 @@ import { SSM } from '../constants/ssm';
 export interface AuditLogIngestStackProps extends AuditLogBaseProps {
   readonly firehoseBufferSizeMb: number;
   readonly firehoseBufferIntervalSec: number;
+  readonly lambdaCodePath?: string;
 }
 
 export const firehoseStreamName = (appQualifier: string) => `${appQualifier}-auditlog-delivery`;
@@ -30,6 +33,7 @@ export const firehoseStreamName = (appQualifier: string) => `${appQualifier}-aud
 export class AuditLogIngestStack extends cdk.Stack {
   public readonly deliveryStreamName: string;
   public readonly deliveryStreamArn: string;
+  public readonly functionVersion: lambda.Version;
 
   constructor(scope: Construct, id: string, props: cdk.StackProps & AuditLogIngestStackProps) {
     super(scope, id, props);
@@ -134,5 +138,26 @@ export class AuditLogIngestStack extends cdk.Stack {
     cfnStream.node.addDependency(policyDependable!);
 
     this.deliveryStreamArn = cfnStream.attrArn;
+
+    const codePath = props.lambdaCodePath
+      ?? path.join(__dirname, '../../service/app/build/libs/app-all.jar');
+
+    const fn = new lambda.Function(this, 'WorkerFn', {
+      runtime: lambda.Runtime.JAVA_21,
+      architecture: lambda.Architecture.ARM_64,
+      snapStart: lambda.SnapStartConf.ON_PUBLISHED_VERSIONS,
+      handler: 'com.marksayson.auditlogworker.Handler::handleRequest',
+      code: lambda.Code.fromAsset(codePath),
+      environment: {
+        FIREHOSE_STREAM_NAME: this.deliveryStreamName,
+      },
+    });
+
+    fn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['firehose:PutRecord'],
+      resources: [this.deliveryStreamArn],
+    }));
+
+    this.functionVersion = fn.currentVersion;
   }
 }

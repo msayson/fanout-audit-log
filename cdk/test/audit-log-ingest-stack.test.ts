@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as cdk from 'aws-cdk-lib/core';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { RemovalPolicy } from 'aws-cdk-lib/core';
@@ -16,6 +17,7 @@ const baseProps = {
   removalPolicy: RemovalPolicy.DESTROY,
   firehoseBufferSizeMb: 128,
   firehoseBufferIntervalSec: 300,
+  lambdaCodePath: path.join(__dirname, 'fixtures'),
   env: { account, region },
 };
 
@@ -193,4 +195,52 @@ test('useCmk: true — delivery role has kms:GenerateDataKey and kms:Decrypt', (
   hasStatement(template, {
     Action: Match.arrayWith(['kms:GenerateDataKey', 'kms:Decrypt']),
   });
+});
+
+// ── Lambda function ───────────────────────────────────────────────────────────
+
+test('Lambda uses Java 21 runtime and ARM_64 architecture', () => {
+  const { template } = makeStack(false);
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Runtime: 'java21',
+    Architectures: ['arm64'],
+  });
+});
+
+test('Lambda has SnapStart enabled on published versions', () => {
+  const { template } = makeStack(false);
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    SnapStart: { ApplyOn: 'PublishedVersions' },
+  });
+});
+
+test('Lambda handler points to Kotlin entry point', () => {
+  const { template } = makeStack(false);
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Handler: 'com.marksayson.auditlogworker.Handler::handleRequest',
+  });
+});
+
+test('Lambda has FIREHOSE_STREAM_NAME env var set to delivery stream name', () => {
+  const { template } = makeStack(false);
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Environment: {
+      Variables: Match.objectLike({
+        FIREHOSE_STREAM_NAME: firehoseStreamName('fanout-dev'),
+      }),
+    },
+  });
+});
+
+test('Lambda role has firehose:PutRecord on the delivery stream', () => {
+  const { template } = makeStack(false);
+  hasStatement(template, {
+    Action: 'firehose:PutRecord',
+    Effect: 'Allow',
+  });
+});
+
+test('stack exports a Lambda Version (for SnapStart)', () => {
+  const { template } = makeStack(false);
+  template.resourceCountIs('AWS::Lambda::Version', 1);
 });
