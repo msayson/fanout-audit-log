@@ -157,6 +157,7 @@ export class AuditLogIngestStack extends cdk.Stack {
       snapStart: lambda.SnapStartConf.ON_PUBLISHED_VERSIONS,
       handler: 'com.marksayson.auditlogworker.Handler::handleRequest',
       code: lambda.Code.fromAsset(codePath),
+      memorySize: 1024,
       timeout: cdk.Duration.seconds(60),
       loggingFormat: lambda.LoggingFormat.JSON,
       environment: {

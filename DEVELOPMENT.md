@@ -6,37 +6,13 @@
 - Node.js 20+
 - AWS CLI configured with credentials for the target account
 
-## Service (Kotlin Lambda)
+## Deploying to dev account
 
 ```sh
-cd service
-
-# Test
-./gradlew test
-
-# Build deployable jar
-./gradlew shadowJar
-# Output: app/build/libs/app-all.jar
-```
-
-## CDK stacks
-
-```sh
-cd cdk
-
-# Test
-npm test
-
-# Synthesize and deploy CDK stacks (requires jar to exist)
-npx cdk synth && npx cdk deploy --all
-```
-
-## Deploy
-
-```sh
-# From repo root — build the jar first, then deploy
-cd service && ./gradlew shadowJar
-cd ../cdk && npx cdk deploy --all
+# Build and generate app/build/libs/app-all.jar for use in CDK deployments
+cd service && ./gradlew test && ./gradlew shadowJar
+# Build and deploy all CDK stacks
+cd ../cdk && npm test && npx cdk synth && npx cdk deploy --all
 ```
 
 ## Validate
