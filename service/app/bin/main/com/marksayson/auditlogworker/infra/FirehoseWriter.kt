@@ -32,7 +32,7 @@ class FirehoseWriter internal constructor(
             .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
 
         operator fun invoke(streamName: String): FirehoseWriter {
-            val client = runBlocking { AwsFirehoseClient.fromEnvironment { } }
+            val client = runBlocking { AwsFirehoseClient.fromEnvironment() }
             return FirehoseWriter(
                 streamName = streamName,
                 put = { bytes ->
