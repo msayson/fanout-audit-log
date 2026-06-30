@@ -1,0 +1,11 @@
+[versions]
+aws-lambda-java-core = "1.2.3"
+junit-jupiter = "5.11.3"
+
+[libraries]
+aws-lambda-java-core = { module = "com.amazonaws:aws-lambda-java-core", version.ref = "aws-lambda-java-core" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit-jupiter" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version = "2.1.0" }
+shadow = { id = "com.github.johnrengelman.shadow", version = "8.1.1" }

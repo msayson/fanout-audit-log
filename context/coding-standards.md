@@ -20,6 +20,13 @@ cdk/
 
 Stacks and their responsibilities are defined in `docs/tasks/tasks-audit-log-p0.md`. The audit bucket name is deterministic (`${account}-${stage}-audit-log`) so its ARN is directly inferrable. The CMK ARN is published to SSM (key ARNs are not inferrable) — downstream stacks read it via `valueForStringParameter`.
 
+## Service code layout
+
+```
+service/
+  app/   # service code for the AWS Lambda function that pushes events to AWS Firehose
+```
+
 ## AWS CDK
 
 - All infrastructure is defined in CDK (TypeScript).
