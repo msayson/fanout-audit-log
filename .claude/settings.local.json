@@ -6,7 +6,10 @@
       "Bash(npm install *)",
       "Bash(npm run *)",
       "Bash(npx jest *)",
-      "Bash(./gradlew test *)"
+      "Bash(./gradlew test *)",
+      "Bash(./gradlew --stop)",
+      "Bash(xargs -I{} sh -c 'jar tf \"{}\" 2>/dev/null | grep -l \"InternalApi\" && echo \"In: {}\"')",
+      "Bash(jar tf *)"
     ]
   }
 }
