@@ -160,7 +160,7 @@ Directional; excludes work-item execution compute (out of scope). Monthly costs,
 - Firehose: $0.029/GB ingest + $0.018/GB Parquet conversion, billed on **5 KB-rounded** records ≈ **$0.047/GB** effective.
 - S3 Standard: $0.023/GB-mo + $0.005 per 1k PUTs.
 - DynamoDB Standard (on-demand): $0.25/GB-mo storage, $0.65 per 1M writes, PITR $0.20/GB-mo. *(Appendix A only.)*
-- Athena: $5/TB scanned. KMS: $1/key-mo.
+- Athena: $5/TB scanned. KMS: $1/key-mo; 2 CMKs (audit bucket + replica) → $2/mo fixed.
 
 ## P0 — Audit log
 
@@ -184,8 +184,8 @@ PUT cost is negligible at $0.005/1k; totals → **$40.10** (200M), **$1,180** (6
 - 200M → 46.6 GB/query → 13.8 TB/mo → **$69**
 - 6,083M → 1,417 GB/query → 421 TB/mo → **$2,100**
 
-### KMS — S3 bucket key
-1 customer-managed key; Bucket Keys keep API calls near-zero → **~$1/mo**.
+### KMS — S3 bucket keys
+2 customer-managed keys (audit bucket + replica bucket); Bucket Keys keep API calls near-zero → **$2/mo fixed regardless of event scale**.
 
 ## P1 — Status projection (S3 current-state table)
 
@@ -207,11 +207,11 @@ The transform is costed as an Athena/dbt Iceberg MERGE. If run as a Glue Spark j
 
 Subtotals across scale; per-line breakdown is in the P0 and P1 subsections above.
 
-| Component | 10/mo, 50 items | 100/mo, 100 items | 10k/mo, 10k items | 10k/**day**, 10k items |
+| Component | 10 events/mo, 50 work items | 100 events/mo, 100 work items | 10k events/mo, 10k work items | 10k events/**day**, 10k work items |
 |---|---|---|---|---|
-| **P0 — Audit log** (Firehose + S3 + Athena + KMS) | ~$1/mo | ~$1/mo | **~$155/mo** | **~$4,640/mo** |
+| **P0 — Audit log** (Firehose + S3 + Athena + KMS) | ~$2/mo | ~$2/mo | **~$156/mo** | **~$4,640/mo** |
 | **P1 — Status projection** (storage + transform + reads) | ~$0/mo | ~$0/mo | **~$5/mo** | **~$80/mo** |
-| **Total (P0 + P1)** | **~$1/mo** | **~$1/mo** | **~$160/mo** | **~$4,720/mo** |
+| **Total (P0 + P1)** | **~$2/mo** | **~$2/mo** | **~$161/mo** | **~$4,720/mo** |
 
 P0 (audit log) dominates; P1 is a thin projection of the same pipeline.
 
