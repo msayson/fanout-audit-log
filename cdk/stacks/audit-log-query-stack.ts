@@ -4,6 +4,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Construct } from 'constructs';
 import { AuditLogBaseProps } from '../interfaces/stack-props';
 import { auditQueryOutputBucketName } from '../utils/bucket-names';
+import { auditDatabaseName, AUDIT_TABLE_NAME } from './audit-log-catalog-stack';
 
 export interface AuditLogQueryStackProps extends AuditLogBaseProps {
   readonly athenaBytesScannedCutoffGb: number;
@@ -54,7 +55,7 @@ export class AuditLogQueryStack extends cdk.Stack {
       expiration: cdk.Duration.days(QUERY_RESULTS_RETENTION_DAYS),
     });
 
-    new athena.CfnWorkGroup(this, 'AuditWorkgroup', {
+    const workgroup = new athena.CfnWorkGroup(this, 'AuditWorkgroup', {
       name: this.workgroupName,
       state: 'ENABLED',
       workGroupConfiguration: {
@@ -68,5 +69,66 @@ export class AuditLogQueryStack extends cdk.Stack {
         },
       },
     });
+
+    const db = auditDatabaseName(props.appQualifier);
+
+    // dt range is 1 day wider than the event_time range to cover Firehose delivery lag
+    // (events near a day boundary may be delivered into the following day's dt partition).
+    const namedQuerySql = (filterField: string, placeholder: string) => `\
+-- Replace '${placeholder}' with the target ${filterField} before running.
+-- Adjust the interval to change the lookback window.
+WITH deduped AS (
+    SELECT
+        event_id, event_time, enqueued_at,
+        tenant_id, batch_id, work_type,
+        item_id, item_type, status,
+        skip_reason, error_code, error_reason,
+        ROW_NUMBER() OVER (PARTITION BY event_id ORDER BY event_time) AS rn
+    FROM "${db}"."${AUDIT_TABLE_NAME}"
+    WHERE ${filterField} = '${placeholder}'
+      AND event_time >= current_timestamp - interval '7' day
+      AND dt >= date_format(current_date - interval '8' day, '%Y/%m/%d')
+      AND dt <= date_format(current_date, '%Y/%m/%d')
+)
+SELECT
+    event_id, event_time, enqueued_at,
+    tenant_id, batch_id, work_type,
+    item_id, item_type, status,
+    skip_reason, error_code, error_reason
+FROM deduped
+WHERE rn = 1
+ORDER BY event_time`;
+
+    const namedQueriesWithPlaceholderValue: Array<[string, string, string, string]> = [
+      ['QueryByBatchId', 'audit-events-by-batch-id', 'Events for a batch_id, last 7 days, deduplicated on event_id', 'batch_id'],
+      ['QueryByItemId', 'audit-events-by-item-id', 'Events for an item_id, last 7 days, deduplicated on event_id', 'item_id'],
+      ['QueryByTenantId', 'audit-events-by-tenant-id', 'Events for a tenant_id, last 7 days, deduplicated on event_id', 'tenant_id'],
+    ];
+    const namedQueriesWithFixedFilterValue: Array<[string, string, string, string, string]> = [
+      ['QueryFailedIngestions', 'failed-ingestion-audit-events', 'Events for failed ingestions, last 7 days, deduplicated on event_id', 'status', 'FAILED'],
+      ['QuerySkippedIngestions', 'skipped-ingestion-audit-events', 'Events for skipped ingestions, last 7 days, deduplicated on event_id', 'status', 'SKIPPED'],
+    ];
+
+    for (const [id, name, description, filterField] of namedQueriesWithPlaceholderValue) {
+      const placeholder = `YOUR_${filterField.toUpperCase()}`;
+      const q = new athena.CfnNamedQuery(this, id, {
+        name,
+        description,
+        database: db,
+        workGroup: this.workgroupName,
+        queryString: namedQuerySql(filterField, placeholder),
+      });
+      q.addDependency(workgroup);
+    }
+    for (const [id, name, description, filterField, filterValue] of namedQueriesWithFixedFilterValue) {
+      const q = new athena.CfnNamedQuery(this, id, {
+        name,
+        description,
+        database: db,
+        workGroup: this.workgroupName,
+        queryString: namedQuerySql(filterField, filterValue),
+      });
+      q.addDependency(workgroup);
+    }
   }
 }

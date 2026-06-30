@@ -73,7 +73,7 @@ Tasks are ordered by dependency. Each task is **independently deployable and tes
 - [x] **P0-06** `AuditLogQueryStack`: Create the Athena query output bucket named **`${accountId}-${stage}-audit-log-query-output`** (add `auditQueryOutputBucketName(account, stage)` to `utils/bucket-names.ts`; SSE-KMS when `useCmk: true`, SSE-S3 when `false`; 14-day lifecycle expiry and auto-deletion after expiry — query results are ephemeral). Then create the Athena workgroup with that bucket as output location and a **`BytesScannedCutoffPerQuery`** control limit = `athenaBytesScannedCutoffGb` (hard per-query cap).
   *Deploy/test:* run an ad-hoc query in the workgroup → results written to the results bucket; a query exceeding the cutoff is rejected.
 
-- [ ] **P0-07** Named queries in the P0-06 workgroup over the P0-03 table: **events by `batch_id`**, **by `item_id`**, **by `tenant_id`** — each taking a date range, pruning on `dt` with the P0-03 lookback window, and **deduplicating on `event_id`** (`COUNT(DISTINCT …)` / `ROW_NUMBER()` over `event_id`).
+- [x] **P0-07** Named queries in the P0-06 workgroup over the P0-03 table: **events by `batch_id`**, **by `item_id`**, **by `tenant_id`** — each taking a date range, pruning on `dt` with the P0-03 lookback window, and **deduplicating on `event_id`** (`COUNT(DISTINCT …)` / `ROW_NUMBER()` over `event_id`).
   *Deploy/test:* against seeded data the three named queries return the expected rows with no duplicates.
 
 ---
