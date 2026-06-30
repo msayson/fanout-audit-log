@@ -3,6 +3,7 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as firehose from 'aws-cdk-lib/aws-kinesisfirehose';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 import { AuditLogBaseProps } from '../interfaces/stack-props';
@@ -142,7 +143,15 @@ export class AuditLogIngestStack extends cdk.Stack {
     const codePath = props.lambdaCodePath
       ?? path.join(__dirname, '../../service/app/build/libs/app-all.jar');
 
+    const functionName = `${props.appQualifier}-Ingest-Worker`;
+
+    const logGroup = new logs.LogGroup(this, 'WorkerLogGroup', {
+      logGroupName: `/aws/lambda/${functionName}`,
+      removalPolicy: props.removalPolicy,
+    });
+
     const fn = new lambda.Function(this, 'WorkerFn', {
+      functionName,
       runtime: lambda.Runtime.JAVA_21,
       architecture: lambda.Architecture.ARM_64,
       snapStart: lambda.SnapStartConf.ON_PUBLISHED_VERSIONS,
@@ -151,6 +160,7 @@ export class AuditLogIngestStack extends cdk.Stack {
       environment: {
         FIREHOSE_STREAM_NAME: this.deliveryStreamName,
       },
+      logGroup,
     });
 
     fn.addToRolePolicy(new iam.PolicyStatement({

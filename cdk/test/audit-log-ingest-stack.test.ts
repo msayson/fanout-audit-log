@@ -199,6 +199,20 @@ test('useCmk: true — delivery role has kms:GenerateDataKey and kms:Decrypt', (
 
 // ── Lambda function ───────────────────────────────────────────────────────────
 
+test('Lambda has deterministic function name', () => {
+  const { template } = makeStack(false);
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    FunctionName: 'fanout-dev-Ingest-Worker',
+  });
+});
+
+test('Lambda log group has deterministic name', () => {
+  const { template } = makeStack(false);
+  template.hasResourceProperties('AWS::Logs::LogGroup', {
+    LogGroupName: '/aws/lambda/fanout-dev-Ingest-Worker',
+  });
+});
+
 test('Lambda uses Java 21 runtime and ARM_64 architecture', () => {
   const { template } = makeStack(false);
   template.hasResourceProperties('AWS::Lambda::Function', {
