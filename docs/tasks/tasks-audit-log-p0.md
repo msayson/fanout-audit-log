@@ -102,6 +102,9 @@ Tasks are ordered by dependency. Each task is **independently deployable and tes
 - [ ] **P0-10** Integration smoke test (requires Groups 2–4 deployed + worker role from P0-05): emit the P0-09 events via `putAuditEvent()` → wait for Firehose flush → run the P0-07 named queries → assert expected rows, deduplicated on `event_id`.
   *Deploy/test:* the test passes end-to-end against a deployed environment and cleans up seeded data.
 
+- [x] **P0-11** GitHub Actions CI workflow (`.github/workflows/ci.yml`): triggers on push and pull request when any changed file matches `**/*.{kt,kts,toml,ts,json}`. Two jobs: (1) **service** — `./gradlew test && ./gradlew shadowJar` in `service/`, using Java 21; (2) **cdk** — `npm test && npx cdk synth` in `cdk/`, using Node 20. The CDK job depends on the service job (synth needs the built jar). All steps must pass for the workflow to succeed.
+  *Verify:* open a PR and confirm all checks pass in GitHub.
+
 ---
 
 ## Group 7 — Resilience (P1 — deferred)
