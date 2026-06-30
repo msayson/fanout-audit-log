@@ -13,18 +13,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlin.math.min
 import kotlin.random.Random
+import java.util.logging.Logger
 
 private const val BASE_DELAY_MS = 100L
 private const val CAP_DELAY_MS = 30_000L
 private const val MAX_ATTEMPTS = 5
 
 class FirehoseWriter internal constructor(
-    private val streamName: String,
+    internal val streamName: String,
     private val put: suspend (ByteArray) -> Unit,
     private val delayFn: suspend (Long) -> Unit = ::delay,
     private val rng: Random = Random.Default,
 ) {
     companion object {
+        private val log = Logger.getLogger(FirehoseWriter::class.java.name)
         private val mapper = ObjectMapper()
             .registerModule(KotlinModule.Builder().build())
             .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
@@ -58,7 +60,9 @@ class FirehoseWriter internal constructor(
                 if (e.sdkErrorMetadata.errorCode != "ProvisionedThroughputExceededException") throw e
                 lastRetryable = e
             }
-            if (attempt < MAX_ATTEMPTS - 1) delayFn(jitter(attempt))
+            val delayMs = jitter(attempt)
+            log.warning("Firehose throttled: stream=$streamName attempt=${attempt + 1}/$MAX_ATTEMPTS retryingInMs=$delayMs")
+            if (attempt < MAX_ATTEMPTS - 1) delayFn(delayMs)
         }
         throw lastRetryable!!
     }

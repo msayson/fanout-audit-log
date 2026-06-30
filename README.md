@@ -60,15 +60,3 @@ All queries cover the last 7 days, deduplicate on `event_id`, and prune on `dt` 
 > `dt` is the Firehose *delivery* date, not `event_time`. Events near a day boundary may land in the following day's partition. The saved queries already account for this — widen the interval manually if querying a longer range.
 
 Query results are written to the `<accountId>-<stage>-audit-log-query-output` S3 bucket and expire after 14 days.
-
-## Development
-
-```sh
-cd cdk
-# Install dependencies and run unit tests
-npm install && npm test
-# Synthesize CDK stacks
-npx cdk synth
-# Deploy CDK stacks (set up AWS credentials first)
-npx cdk deploy --all
-```

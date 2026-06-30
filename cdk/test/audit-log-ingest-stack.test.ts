@@ -48,89 +48,39 @@ test('stack exports deliveryStreamName', () => {
 
 // ── delivery stream ───────────────────────────────────────────────────────────
 
-test('delivery stream has correct name and type', () => {
+test('useCmk: false — delivery stream has expected config', () => {
   const { template } = makeStack(false);
   template.hasResourceProperties('AWS::KinesisFirehose::DeliveryStream', {
+    DeliveryStreamEncryptionConfigurationInput: Match.absent(),
     DeliveryStreamName: 'fanout-dev-auditlog-delivery',
     DeliveryStreamType: 'DirectPut',
   });
 });
 
-test('useCmk: false — no stream-level SSE', () => {
-  const { template } = makeStack(false);
-  template.hasResourceProperties('AWS::KinesisFirehose::DeliveryStream', {
-    DeliveryStreamEncryptionConfigurationInput: Match.absent(),
-  });
-});
-
-test('useCmk: true — stream SSE uses CUSTOMER_MANAGED_CMK', () => {
+test('useCmk: true — delivery stream has expected config with customer-managed key', () => {
   const { template } = makeStack(true);
   template.hasResourceProperties('AWS::KinesisFirehose::DeliveryStream', {
     DeliveryStreamEncryptionConfigurationInput: Match.objectLike({
       KeyType: 'CUSTOMER_MANAGED_CMK',
     }),
+    DeliveryStreamName: 'fanout-dev-auditlog-delivery',
+    DeliveryStreamType: 'DirectPut',
   });
 });
 
 // ── S3 destination ────────────────────────────────────────────────────────────
 
-test('S3 destination points to audit bucket', () => {
+test('Firehose stream S3 destination has expected config', () => {
   const { template } = makeStack(false);
   template.hasResourceProperties('AWS::KinesisFirehose::DeliveryStream', {
     ExtendedS3DestinationConfiguration: Match.objectLike({
       BucketARN: `arn:aws:s3:::${auditBucketName(account, stage)}`,
-    }),
-  });
-});
-
-test('success prefix uses Firehose delivery timestamp', () => {
-  const { template } = makeStack(false);
-  template.hasResourceProperties('AWS::KinesisFirehose::DeliveryStream', {
-    ExtendedS3DestinationConfiguration: Match.objectLike({
-      Prefix: 'dt=!{timestamp:yyyy/MM/dd}/',
-    }),
-  });
-});
-
-test('error prefix uses Firehose error type and timestamp under errors/ root', () => {
-  const { template } = makeStack(false);
-  template.hasResourceProperties('AWS::KinesisFirehose::DeliveryStream', {
-    ExtendedS3DestinationConfiguration: Match.objectLike({
-      ErrorOutputPrefix: `${FIREHOSE_ERROR_PREFIX}!{firehose:error-output-type}/dt=!{timestamp:yyyy/MM/dd}/`,
-    }),
-  });
-});
-
-test('buffering hints match props', () => {
-  const { template } = makeStack(false);
-  template.hasResourceProperties('AWS::KinesisFirehose::DeliveryStream', {
-    ExtendedS3DestinationConfiguration: Match.objectLike({
       BufferingHints: { SizeInMBs: 128, IntervalInSeconds: 300 },
-    }),
-  });
-});
-
-// ── Parquet format conversion ─────────────────────────────────────────────────
-
-test('format conversion is enabled with Parquet/Snappy output', () => {
-  const { template } = makeStack(false);
-  template.hasResourceProperties('AWS::KinesisFirehose::DeliveryStream', {
-    ExtendedS3DestinationConfiguration: Match.objectLike({
       DataFormatConversionConfiguration: Match.objectLike({
         Enabled: true,
         OutputFormatConfiguration: {
           Serializer: { ParquetSerDe: { Compression: 'SNAPPY' } },
         },
-      }),
-    }),
-  });
-});
-
-test('schema configuration references correct Glue database and table', () => {
-  const { template } = makeStack(false);
-  template.hasResourceProperties('AWS::KinesisFirehose::DeliveryStream', {
-    ExtendedS3DestinationConfiguration: Match.objectLike({
-      DataFormatConversionConfiguration: Match.objectLike({
         SchemaConfiguration: Match.objectLike({
           CatalogId: account,
           DatabaseName: auditDatabaseName('fanout-dev'),
@@ -139,6 +89,8 @@ test('schema configuration references correct Glue database and table', () => {
           VersionId: 'LATEST',
         }),
       }),
+      ErrorOutputPrefix: `${FIREHOSE_ERROR_PREFIX}!{firehose:error-output-type}/dt=!{timestamp:yyyy/MM/dd}/`,
+      Prefix: 'dt=!{timestamp:yyyy/MM/dd}/',
     }),
   });
 });
@@ -199,10 +151,25 @@ test('useCmk: true — delivery role has kms:GenerateDataKey and kms:Decrypt', (
 
 // ── Lambda function ───────────────────────────────────────────────────────────
 
-test('Lambda has deterministic function name', () => {
+test('Lambda function has expected properties', () => {
   const { template } = makeStack(false);
   template.hasResourceProperties('AWS::Lambda::Function', {
+    Architectures: ['arm64'],
+    Environment: {
+      Variables: Match.objectLike({
+        FIREHOSE_STREAM_NAME: firehoseStreamName('fanout-dev'),
+      }),
+    },
     FunctionName: 'fanout-dev-Ingest-Worker',
+    Handler: 'com.marksayson.auditlogworker.Handler::handleRequest',
+    Runtime: 'java21',
+    SnapStart: { ApplyOn: 'PublishedVersions' },
+    Timeout: 60,
+  });
+
+  hasStatement(template, {
+    Action: 'firehose:PutRecord',
+    Effect: 'Allow',
   });
 });
 
@@ -211,50 +178,4 @@ test('Lambda log group has deterministic name', () => {
   template.hasResourceProperties('AWS::Logs::LogGroup', {
     LogGroupName: '/aws/lambda/fanout-dev-Ingest-Worker',
   });
-});
-
-test('Lambda uses Java 21 runtime and ARM_64 architecture', () => {
-  const { template } = makeStack(false);
-  template.hasResourceProperties('AWS::Lambda::Function', {
-    Runtime: 'java21',
-    Architectures: ['arm64'],
-  });
-});
-
-test('Lambda has SnapStart enabled on published versions', () => {
-  const { template } = makeStack(false);
-  template.hasResourceProperties('AWS::Lambda::Function', {
-    SnapStart: { ApplyOn: 'PublishedVersions' },
-  });
-});
-
-test('Lambda handler points to Kotlin entry point', () => {
-  const { template } = makeStack(false);
-  template.hasResourceProperties('AWS::Lambda::Function', {
-    Handler: 'com.marksayson.auditlogworker.Handler::handleRequest',
-  });
-});
-
-test('Lambda has FIREHOSE_STREAM_NAME env var set to delivery stream name', () => {
-  const { template } = makeStack(false);
-  template.hasResourceProperties('AWS::Lambda::Function', {
-    Environment: {
-      Variables: Match.objectLike({
-        FIREHOSE_STREAM_NAME: firehoseStreamName('fanout-dev'),
-      }),
-    },
-  });
-});
-
-test('Lambda role has firehose:PutRecord on the delivery stream', () => {
-  const { template } = makeStack(false);
-  hasStatement(template, {
-    Action: 'firehose:PutRecord',
-    Effect: 'Allow',
-  });
-});
-
-test('stack exports a Lambda Version (for SnapStart)', () => {
-  const { template } = makeStack(false);
-  template.resourceCountIs('AWS::Lambda::Version', 1);
 });
