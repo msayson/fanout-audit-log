@@ -1,5 +1,7 @@
 # fanout-audit-log
 
+[![CI](https://github.com/msayson/fanout-audit-log/actions/workflows/ci.yml/badge.svg)](https://github.com/msayson/fanout-audit-log/actions/workflows/ci.yml)
+
 Append-only audit log for fan-out work-item workflows on AWS.
 
 Workers emit one structured event per work-item occurrence. Events are buffered via AWS Firehose, converted to Parquet, and written to a write-once-read-many (WORM) S3 bucket partitioned by delivery date and queried via Athena.

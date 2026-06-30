@@ -8,6 +8,7 @@ on:
       - '**/*.toml'
       - '**/*.ts'
       - '**/*.json'
+      - '**/*.yml'
   pull_request:
     paths:
       - '**/*.kt'
@@ -15,6 +16,7 @@ on:
       - '**/*.toml'
       - '**/*.ts'
       - '**/*.json'
+      - '**/*.yml'
 
 jobs:
   service:
