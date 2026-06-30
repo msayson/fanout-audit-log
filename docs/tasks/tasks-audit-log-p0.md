@@ -53,7 +53,7 @@ Tasks are ordered by dependency. Each task is **independently deployable and tes
 - [x] **P0-02** Shared schema module (code, no infra): the audit-event field list + `status` enum (`PENDING|SUCCEEDED|FAILED|SKIPPED`) as a single exported constant / JSON schema, matching design §3. This is the **single source of truth** consumed by P0-03 (Glue table), P0-05 (worker helper), and P0-09 (example events).
   *Deploy/test:* unit test validates a sample event against the schema and rejects an unknown status.
 
-- [ ] **P0-03** `AuditLogCatalogStack`: Glue database + audit-event table built from the P0-02 schema, over the audit bucket location, with partition key **`dt` (delivery date)** and **partition projection** (`projection.enabled`, date range/format for `dt`) — no crawler. Document the **watermark contract**: `dt` reflects Firehose *delivery* time, which can lag `event_time` by up to the buffer interval (and across day boundaries), so consumers query a lookback window on `dt` (used by P0-07).
+- [x] **P0-03** `AuditLogCatalogStack`: Glue database + audit-event table built from the P0-02 schema, over the audit bucket location, with partition key **`dt` (delivery date)** and **partition projection** (`projection.enabled`, date range/format for `dt`) — no crawler. Document the **watermark contract**: `dt` reflects Firehose *delivery* time, which can lag `event_time` by up to the buffer interval (and across day boundaries), so consumers query a lookback window on `dt` (used by P0-07).
   *Deploy/test:* an Athena `SELECT … LIMIT 1` against the empty table returns zero rows with no partition error.
 
 ---
