@@ -160,7 +160,7 @@ Directional; excludes work-item execution compute (out of scope). Monthly costs,
 - Firehose: $0.029/GB ingest + $0.018/GB Parquet conversion, billed on **5 KB-rounded** records ≈ **$0.047/GB** effective.
 - S3 Standard: $0.023/GB-mo + $0.005 per 1k PUTs.
 - DynamoDB Standard (on-demand): $0.25/GB-mo storage, $0.65 per 1M writes, PITR $0.20/GB-mo. *(Appendix A only.)*
-- Athena: $5/TB scanned. KMS: $1/key-mo; 2 CMKs (audit bucket + replica) → $2/mo fixed.
+- Athena: $5/TB scanned. KMS: $1/key-mo; 2 CMKs (audit bucket + replica) → $2/mo fixed. CloudWatch: $0.10/alarm-month (standard); dashboards: $3.00/dashboard-month (first 3 free per account per region); S3 request metrics: $0.30/metric-month per published metric (up to 16 per filter config; metrics are only published when matching requests occur — no charge during zero-traffic periods).
 
 ## P0 — Audit log
 
@@ -187,6 +187,17 @@ PUT cost is negligible at $0.005/1k; totals → **$40.10** (200M), **$1,180** (6
 ### KMS — S3 bucket keys
 2 customer-managed keys (audit bucket + replica bucket); Bucket Keys keep API calls near-zero → **$2/mo fixed regardless of event scale**.
 
+### CloudWatch (alarms + dashboards + S3 request metrics)
+2 standard-resolution alarms × $0.10 = $0.20/mo.
+
+2 dashboards × $3.00 = $6.00/mo (list price; free if these are the only dashboards in the account/region, which grants 3 free).
+
+**Fixed total: $6/mo.**
+
+The error-prefix alarm relies on the S3 request-metrics filter (`bucket.addMetric`) configured on the audit bucket. That filter can publish up to 16 metrics (AllRequests, GetRequests, PutRequests, DeleteRequests, HeadRequests, PostRequests, ListRequests, SelectRequests, SelectBytesScanned, SelectBytesReturned, BytesDownloaded, BytesUploaded, 4xxErrors, 5xxErrors, FirstByteLatency, TotalRequestLatency) at $0.30 each = up to $4.80/mo. However, AWS only publishes S3 request metrics when matching requests actually occur — **with zero Firehose errors there are no requests to the `errors/` prefix, so no metric data points are emitted and no charge accrues**. This component costs $0 in normal operation and up to ~$5/mo only during sustained error conditions (i.e., exactly when the alarm should be firing).
+
+Total CloudWatch: **$6-$11/month, higher range only during sustained Firehose delivery failures.** (No SNS/Lambda actions are wired to the alarms, so no action costs.)
+
 ## P1 — Status projection (S3 current-state table)
 
 The hourly Glue/dbt job folds the log into an Iceberg current-state table (one row per batch × work item, ½ the event count) plus per-work-item rollups. Three lines: **storage** of the current-state rows, **transform** (incremental MERGE), and **reads** (SPICE-cached dashboards + Athena drill-down). Records over the 3-month window = events/mo × ½ × 3; current-state Parquet row ≈ 250 B (parity with audit-event compression).
@@ -207,11 +218,12 @@ The transform is costed as an Athena/dbt Iceberg MERGE. If run as a Glue Spark j
 
 Subtotals across scale; per-line breakdown is in the P0 and P1 subsections above.
 
-| Component | 10 events/mo, 50 work items | 100 events/mo, 100 work items | 10k events/mo, 10k work items | 10k events/**day**, 10k work items |
+| Component | 10 batches/mo, 50 work items | 100 batches/mo, 100 work items | 10k batches/mo, 10k work items | 10k batches/**day**, 10k work items |
 |---|---|---|---|---|
 | **P0 — Audit log** (Firehose + S3 + Athena + KMS) | ~$2/mo | ~$2/mo | **~$156/mo** | **~$4,640/mo** |
+| **CloudWatch** | ~$11/mo | ~$11/mo | ~$11/mo | ~$11/mo |
 | **P1 — Status projection** (storage + transform + reads) | ~$0/mo | ~$0/mo | **~$5/mo** | **~$80/mo** |
-| **Total (P0 + P1)** | **~$2/mo** | **~$2/mo** | **~$161/mo** | **~$4,720/mo** |
+| **Total (P0 + P1 + CW)** | **~$13/mo** | **~$13/mo** | **~$172/mo** | **~$4,731/mo** |
 
 P0 (audit log) dominates; P1 is a thin projection of the same pipeline.
 
